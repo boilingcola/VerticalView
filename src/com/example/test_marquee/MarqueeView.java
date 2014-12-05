@@ -1,14 +1,13 @@
 package com.example.test_marquee;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.graphics.Paint;
-import android.text.Editable;
-import android.text.TextWatcher;
+import android.graphics.Paint.FontMetrics;
+import android.text.TextUtils.TruncateAt;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
 import android.view.animation.Animation;
 import android.view.animation.Interpolator;
 import android.view.animation.LinearInterpolator;
@@ -21,38 +20,34 @@ import android.widget.TextView;
  * LinearLayout作为父View，必须有一个子TextView
  * 
  * 利用动画实现
+ * 
+ * 
  */
 public class MarqueeView extends LinearLayout {
 
-	private static final int TEXTVIEW_VIRTUAL_WIDTH = 2000;/* TextView默认宽度 */
-	private static final int DEFAULT_SPEED = 35;/* 默认滚动速度 越大滚动越慢 */
-	private static final int DEFAULT_ANIMATION_PAUSE = 0;/* 出去动画与进入动画的时间间隔 */
 	private static final String TAG = MarqueeView.class.getSimpleName();
-
-	private TextView mTextField;/* 该跑马灯的孙子View之TextView */
-	private ScrollView mScrollView;/* 该跑马灯的子View之mScrollView */
-
-	private Animation mMoveTextOut = null;/* 作用于TextView的动画 --出去 */
-	private Animation mMoveTextIn = null;/* 作用于TextView的动画 --进入 */
+	private static final int TEXTVIEW_VIRTUAL_WIDTH = 5000;
+	private TextView mTextField;
+	private ScrollView mScrollView;
 
 	private Paint mPaint;
-	private int mSpeed = DEFAULT_SPEED;
-	private int mAnimationPause = DEFAULT_ANIMATION_PAUSE;
-	private Interpolator mInterpolator = new LinearInterpolator();
 
-	private Runnable mAnimationStartRunnable;
+	// 动画需要在字符串确定后才能确定
+	private Animation mMoveText = null;
 
 	/** 字符串之间的间隔 */
-	private String interval = "     ";
+	private String interval = " ";// 文字间隔
 	private String stringOfItem = "";
-	/** str+interval的长度 */
-	private float widthOfItem = 0;
-	private float widthOfTextView;
 	private String stringOfTextView = "";
-	private float startXOfOut = 0;
-	private float endXOfOut = 0;
-	private float startXOfIn = 0;
-	private float endXOfIn = 0;
+	private String stringOfOrigin = "";
+	private float widthOfItem = 0;
+	private float widthOfString;
+	private float widthOfMarqueeView;
+	private float startXOfAnimation = 0;// 动画的起始坐标
+	private float endXOfAnimation = 0;
+	private Runnable mAnimationStartRunnable;
+	private int mSpeed = 10;
+	private Interpolator mInterpolator = new LinearInterpolator();
 
 	public MarqueeView(Context context) {
 		super(context);
@@ -72,118 +67,178 @@ public class MarqueeView extends LinearLayout {
 
 	private void init(Context context) {
 		// init helper
-		mPaint = new Paint();
-		mPaint.setAntiAlias(true);
-		mPaint.setStrokeWidth(1);
-		mPaint.setStrokeCap(Paint.Cap.ROUND);
-		mInterpolator = new LinearInterpolator();
+		mTextField = new TextView(context);
+		mScrollView = new ScrollView(context);
+		mPaint = mTextField.getPaint();
+
+		mTextField.setSingleLine(true);
+		mTextField.setEllipsize(TruncateAt.END);
+		mPaint.setFakeBoldText(true);
+		mScrollView.setBackgroundColor(Color.parseColor("#0000ff"));
+
+		widthOfMarqueeView = getWidth();
+
+		LayoutParams sv1lp = new LayoutParams(LayoutParams.MATCH_PARENT,
+				LayoutParams.MATCH_PARENT);
+		sv1lp.gravity = Gravity.CENTER;
+		LayoutParams tv1lp = new LayoutParams(TEXTVIEW_VIRTUAL_WIDTH,
+				LayoutParams.MATCH_PARENT);
+		tv1lp.gravity = Gravity.CENTER;
+
+		mScrollView.addView(mTextField, tv1lp);
+		addView(mScrollView, sv1lp);
 	}
 
-	// 当给子View分配位置和尺寸时调用。
 	@Override
 	protected void onLayout(boolean changed, int l, int t, int r, int b) {
 		super.onLayout(changed, l, t, r, b);
-		Logcat.d(TAG, "onLayout called!" + "changed: " + changed);
-		if (getChildCount() == 0 || getChildCount() > 1) {
-			throw new RuntimeException(
-					"MarqueeView must have exactly one child element.");
-		}
+		Logcat.d(TAG, "onLayout called changed: " + changed);
 
-		//
 		if (changed) {
-			View v = getChildAt(0);
-			if (!(v instanceof TextView)) {
-				throw new RuntimeException(
-						"The child view of this MarqueeView must be a TextView instance.");
-			}
-			initView(getContext());
-			mTextField.setText(mTextField.getText());
+			widthOfMarqueeView = getWidth();
+			if (stringOfOrigin.equals(""))
+				return;
+			Logcat.d(TAG, "widthOfMarqueeView: " + widthOfMarqueeView);
+			mScrollView.layout(l, t, r, b);
+			dealChange();
 		}
 	}
 
-	/** Starts the configured marquee effect. */
-	public void startMarquee() {
-		Logcat.d(TAG, "startMarquee called");
-		startTextFieldAnimation();
+	public void setText(String string) {
+		stringOfOrigin = string;
+		stringOfItem = string + interval;
+		dealChange();
 	}
 
-	// 一旦开始动画，动画结束开始由监听器负责。
-	private void startTextFieldAnimation() {
-		mAnimationStartRunnable = new Runnable() {
-			public void run() {
-				mTextField.startAnimation(mMoveTextOut);
-			}
-		};
-		postDelayed(mAnimationStartRunnable, mAnimationPause);
-	}
-
-	/**
-	 * Disables the animations.
-	 */
-	public void reset() {
-
+	public void stopMarquee() {
+		Logcat.d(TAG, "stopMarquee called ");
 		if (mAnimationStartRunnable == null)
 			return;
 		removeCallbacks(mAnimationStartRunnable);
 		mTextField.clearAnimation();
-		mMoveTextOut.reset();
-		mMoveTextIn.reset();
 		invalidate();
 	}
 
+	public void startMarquee() {
+		mAnimationStartRunnable = new Runnable() {
+			public void run() {
+				mTextField.startAnimation(mMoveText);
+			}
+		};
+		postDelayed(mAnimationStartRunnable, 0);
+		invalidate();
+	}
+
+	/** 文字高度固定时就可以获取这些宽度信息,这时认为字符串已经加工好了 */
+	public void dealLayoutChange() {
+		Logcat.d(TAG, "dealLayoutChange called ");
+
+		// 需要重新计算
+		stringOfTextView = stringOfItem + stringOfItem;
+		widthOfItem = mPaint.measureText(stringOfItem);
+		widthOfString = mPaint.measureText(stringOfTextView);
+		while (widthOfString <= 2 * widthOfMarqueeView) {
+			stringOfTextView += stringOfItem;
+			widthOfString = mPaint.measureText(stringOfTextView);
+		}
+		widthOfString = mPaint.measureText(stringOfTextView);
+		expandTextView();
+		mTextField.setText(stringOfTextView);
+
+		Logcat.d(TAG, "widthOfString: " + widthOfString);
+		Logcat.d(TAG, "widthOFmTextField: " + mTextField.getWidth());
+	}
+
+	public void dealChange() {
+		Logcat.d(TAG, "dealChange called ");
+		stopMarquee();
+		// 设置字体大小
+		setTextFitSize();
+		// 处理文字 布局大小发生变化，布局变而文字不变，重设文字而布局不变，
+		dealLayoutChange();
+		// 设置动画
+		prepareAnimation();
+		// 开始滚动
+		startMarquee();
+	}
+
+	/** 设置TextView大小！！！ */
+	private void expandTextView() {
+		Logcat.d(TAG, "expandTextView called");
+		mTextField.layout(getLeft(), getTop(),
+				(int) (getLeft() + widthOfString + 5), getTop() + getHeight());
+		// ViewGroup.LayoutParams lp = mTextField.getLayoutParams();
+		// lp.width = (int) (widthOfString + 5);
+		// lp.height=getHeight();
+		// mTextField.setLayoutParams(lp);
+
+	}
+
+	public void setTextFitSize() {
+		mTextField.setTextSize(getFitTextSize(mPaint, getHeight()));
+	}
+
+	public int getFitTextSize(Paint paint, int height) {
+
+		// System.out.println("height: " + height);
+		int minSize = 10;
+		int maxSize = 200;
+		int step = 1;
+
+		// int heightOfText = height * 2 / 3;
+		int heightOfText = height;
+		while (minSize < maxSize) {
+
+			paint.setTextSize(minSize);
+			FontMetrics fm = paint.getFontMetrics();
+
+			// //System.out.println("Math.ceil(fm.descent - fm.top): "
+			// + Math.ceil(fm.descent - fm.top));
+			if (Math.ceil(fm.descent - fm.top) >= heightOfText) {
+				break;
+			}
+			minSize += step;
+		}
+		System.out.println("--- fit size: " + minSize + " ---");
+		return minSize;
+	}
+
+	/** 根据文字长度、view长度、item长度确定动画参数 */
 	private void prepareAnimation() {
-		// Measure
-		mPaint.setTextSize(mTextField.getTextSize());
-		mPaint.setTypeface(mTextField.getTypeface());
-		float mTextWidth = mPaint.measureText(mTextField.getText().toString());
 
-		float width = getMeasuredWidth();
-		startXOfOut = -(mTextWidth - width) % widthOfItem;
-		endXOfOut = -mTextWidth + width;
-		startXOfIn = -(mTextWidth - width) % widthOfItem;
-		endXOfIn = -mTextWidth + width;
+		Logcat.d(TAG, "prepareAnimation called ");
+		startXOfAnimation = -(widthOfString - widthOfMarqueeView) % widthOfItem;
+		endXOfAnimation = -widthOfString + widthOfMarqueeView;
 
-		final int duration = ((int) Math.abs(startXOfOut - endXOfOut) * mSpeed);
+		final int duration = ((int) Math.abs(startXOfAnimation
+				- endXOfAnimation) * mSpeed);
 
 		if (BuildConfig.DEBUG) {
+
+			Logcat.d(TAG, "stringOfTextView: " + stringOfTextView + "###");
+			Logcat.d(TAG, "widthOfTextView: " + widthOfString);
+			Logcat.d(TAG, "widthOfMarqueeView: " + widthOfMarqueeView);
+
 			Log.d(TAG, "(int) Math.abs(startXOfOut - endXOfOut)       : "
-					+ (int) Math.abs(startXOfOut - endXOfOut));
+					+ (int) Math.abs(startXOfAnimation - endXOfAnimation));
 			Log.d(TAG, "mSpeed       : " + mSpeed);
-			Log.d(TAG, "startXOfOut       : " + startXOfOut);
-			Log.d(TAG, "endXOfOut         : " + endXOfOut);
-			Log.d(TAG, "startXOfIn        : " + startXOfIn);
-			Log.d(TAG, "endXOfIn  		  : " + endXOfIn);
+			Log.d(TAG, "startXOfAnimation       : " + startXOfAnimation);
+			Log.d(TAG, "endXOfAnimation         : " + endXOfAnimation);
 			Log.d(TAG, "duration  		  : " + duration);
 		}
-		mMoveTextOut = new TranslateAnimation(startXOfOut, endXOfOut, 0, 0);
-		mMoveTextOut.setDuration(duration);
-		mMoveTextOut.setInterpolator(mInterpolator);
-		mMoveTextOut.setFillAfter(true);
 
-		mMoveTextIn = new TranslateAnimation(startXOfIn, endXOfIn, 0, 0);
-		mMoveTextIn.setDuration(duration);
-		mMoveTextIn.setStartOffset(mAnimationPause);
-		mMoveTextIn.setInterpolator(mInterpolator);
-		mMoveTextIn.setFillAfter(true);
+		mMoveText = new TranslateAnimation(startXOfAnimation, endXOfAnimation,
+				0, 0);
+		mMoveText.setDuration(duration);
+		mMoveText.setInterpolator(mInterpolator);
+		mMoveText.setFillAfter(true);
 
-		mMoveTextOut.setAnimationListener(new Animation.AnimationListener() {
+		mMoveText.setAnimationListener(new Animation.AnimationListener() {
 			public void onAnimationStart(Animation animation) {
 			}
 
 			public void onAnimationEnd(Animation animation) {
-				mTextField.startAnimation(mMoveTextIn);
-			}
-
-			public void onAnimationRepeat(Animation animation) {
-			}
-		});
-
-		mMoveTextIn.setAnimationListener(new Animation.AnimationListener() {
-			public void onAnimationStart(Animation animation) {
-			}
-
-			public void onAnimationEnd(Animation animation) {
-				startTextFieldAnimation();
+				startMarquee();
 			}
 
 			public void onAnimationRepeat(Animation animation) {
@@ -191,81 +246,4 @@ public class MarqueeView extends LinearLayout {
 		});
 	}
 
-	/** 初始化子View */
-	private void initView(Context context) {
-
-		// Scroll View
-		LayoutParams sv1lp = new LayoutParams(LayoutParams.MATCH_PARENT,
-				LayoutParams.WRAP_CONTENT);
-		sv1lp.gravity = Gravity.CENTER_HORIZONTAL;
-		mScrollView = new ScrollView(context);
-
-		// Scroll View 1 - Text Field
-		mTextField = (TextView) getChildAt(0);
-		removeView(mTextField);
-
-		mScrollView.addView(mTextField, new ScrollView.LayoutParams(
-				TEXTVIEW_VIRTUAL_WIDTH, LayoutParams.WRAP_CONTENT));
-
-		mTextField.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence charSequence, int i,
-					int i2, int i3) {
-			}
-
-			@Override
-			public void onTextChanged(CharSequence charSequence, int i, int i2,
-					int i3) {
-			}
-
-			@Override
-			public void afterTextChanged(Editable editable) {
-
-				Logcat.d(TAG, "afterTextChanged called");
-
-				// 如果提供的字符串未被加工过，就先加工，否则就开始动画
-				if (!stringOfTextView.equals(editable.toString())) {
-
-					String str = editable.toString();
-					mPaint.setTextSize(mTextField.getTextSize());
-					mPaint.setTypeface(mTextField.getTypeface());
-
-					stringOfItem = str + interval;
-					widthOfItem = mPaint.measureText(stringOfItem);
-					stringOfTextView = stringOfItem;
-					widthOfTextView = widthOfItem;
-
-					while (widthOfTextView <= 2 * getMeasuredWidth()) {
-						stringOfTextView += stringOfItem;
-						widthOfTextView = mPaint.measureText(stringOfTextView);
-					}
-					Logcat.d(TAG, "string of TextView deal ok!###");
-					Logcat.d(TAG, "lengthOfll: " + getMeasuredWidth() + "###");
-					Logcat.d(TAG, "lengthOfTextView: " + widthOfTextView
-							+ "###");
-					Logcat.d(TAG, "CONTENT: " + stringOfTextView + "###");
-					// 设置起始
-					mTextField.setText(stringOfTextView);
-					return;
-				}
-				reset();
-				prepareAnimation();
-				expandTextView();
-				post(new Runnable() {
-					@Override
-					public void run() {
-						startMarquee();
-					}
-				});
-			}
-		});
-
-		addView(mScrollView, sv1lp);
-	}
-
-	private void expandTextView() {
-		ViewGroup.LayoutParams lp = mTextField.getLayoutParams();
-		lp.width = (int) widthOfTextView + 5;
-		mTextField.setLayoutParams(lp);
-	}
 }
