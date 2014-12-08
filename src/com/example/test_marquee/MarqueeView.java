@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.FontMetrics;
-import android.text.TextUtils.TruncateAt;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -20,13 +19,13 @@ import android.widget.TextView;
  * LinearLayout作为父View，必须有一个子TextView
  * 
  * 利用动画实现
- * 
- * 
  */
 public class MarqueeView extends LinearLayout {
 
 	private static final String TAG = MarqueeView.class.getSimpleName();
 	private static final int TEXTVIEW_VIRTUAL_WIDTH = 5000;
+
+	private Context context;
 	private TextView mTextField;
 	private ScrollView mScrollView;
 
@@ -35,18 +34,21 @@ public class MarqueeView extends LinearLayout {
 	// 动画需要在字符串确定后才能确定
 	private Animation mMoveText = null;
 
+	private float widthOfMarqueeView;
+	private float heightOfMarqueeView;
+
 	/** 字符串之间的间隔 */
-	private String interval = " ";// 文字间隔
+	private String interval = "     ";// 文字间隔
+
 	private String stringOfItem = "";
 	private String stringOfTextView = "";
 	private String stringOfOrigin = "";
 	private float widthOfItem = 0;
-	private float widthOfString;
-	private float widthOfMarqueeView;
+	private float widthOfString = 0;
 	private float startXOfAnimation = 0;// 动画的起始坐标
 	private float endXOfAnimation = 0;
 	private Runnable mAnimationStartRunnable;
-	private int mSpeed = 10;
+	private int mSpeed = 40;
 	private Interpolator mInterpolator = new LinearInterpolator();
 
 	public MarqueeView(Context context) {
@@ -67,16 +69,53 @@ public class MarqueeView extends LinearLayout {
 
 	private void init(Context context) {
 		// init helper
-		mTextField = new TextView(context);
+		this.context = context;
+	}
+
+	private Runnable startRunnable = new Runnable() {
+
+		@Override
+		public void run() {
+			setText(stringOfOrigin);
+		}
+	};
+
+	@Override
+	protected void onLayout(boolean changed, int l, int t, int r, int b) {
+		super.onLayout(changed, l, t, r, b);
+		Logcat.d(TAG, "onLayout called changed: " + changed);
+
+		if (changed) {
+
+			widthOfMarqueeView = getWidth();
+			heightOfMarqueeView = getHeight();
+
+			// Logcat.d(TAG, "widthOfMarqueeView: " + widthOfMarqueeView);
+			// Logcat.d(TAG, "heightOfMarqueeView: " + heightOfMarqueeView);
+			// 这里直接调用setText("");是不行的，为什么！！！
+			postDelayed(startRunnable, 0);
+		}
+	}
+
+	public void setText(String string) {
+		Logcat.d(TAG, "setText");
+		stringOfOrigin = string;
+		stringOfItem = string + interval;
+		initViews();
+		dealChange();
+	}
+
+	public void initViews() {
+		clearMarquee();
+		removeAllViews();
 		mScrollView = new ScrollView(context);
+		mTextField = new TextView(context);
 		mPaint = mTextField.getPaint();
 
 		mTextField.setSingleLine(true);
-		mTextField.setEllipsize(TruncateAt.END);
+		mTextField.setTextColor(Color.parseColor("#FF000000"));
 		mPaint.setFakeBoldText(true);
-		mScrollView.setBackgroundColor(Color.parseColor("#0000ff"));
-
-		widthOfMarqueeView = getWidth();
+		mPaint.setAntiAlias(true);
 
 		LayoutParams sv1lp = new LayoutParams(LayoutParams.MATCH_PARENT,
 				LayoutParams.MATCH_PARENT);
@@ -89,25 +128,8 @@ public class MarqueeView extends LinearLayout {
 		addView(mScrollView, sv1lp);
 	}
 
-	@Override
-	protected void onLayout(boolean changed, int l, int t, int r, int b) {
-		super.onLayout(changed, l, t, r, b);
-		Logcat.d(TAG, "onLayout called changed: " + changed);
-
-		if (changed) {
-			widthOfMarqueeView = getWidth();
-			if (stringOfOrigin.equals(""))
-				return;
-			Logcat.d(TAG, "widthOfMarqueeView: " + widthOfMarqueeView);
-			mScrollView.layout(l, t, r, b);
-			dealChange();
-		}
-	}
-
-	public void setText(String string) {
-		stringOfOrigin = string;
-		stringOfItem = string + interval;
-		dealChange();
+	public void clearMarquee() {
+		stopMarquee();
 	}
 
 	public void stopMarquee() {
@@ -151,7 +173,6 @@ public class MarqueeView extends LinearLayout {
 
 	public void dealChange() {
 		Logcat.d(TAG, "dealChange called ");
-		stopMarquee();
 		// 设置字体大小
 		setTextFitSize();
 		// 处理文字 布局大小发生变化，布局变而文字不变，重设文字而布局不变，
@@ -164,14 +185,18 @@ public class MarqueeView extends LinearLayout {
 
 	/** 设置TextView大小！！！ */
 	private void expandTextView() {
-		Logcat.d(TAG, "expandTextView called");
+
 		mTextField.layout(getLeft(), getTop(),
 				(int) (getLeft() + widthOfString + 5), getTop() + getHeight());
-		// ViewGroup.LayoutParams lp = mTextField.getLayoutParams();
-		// lp.width = (int) (widthOfString + 5);
-		// lp.height=getHeight();
-		// mTextField.setLayoutParams(lp);
-
+		if (BuildConfig.DEBUG) {
+			Logcat.d(TAG, "expandTextView called");
+			Logcat.d(TAG, "getLeft(): " + getLeft() + "###");
+			Logcat.d(TAG, "getTop(): " + getTop() + "###");
+			Logcat.d(TAG, "(int) (getLeft() + widthOfString + 5): "
+					+ (int) (getLeft() + widthOfString + 5) + "###");
+			Logcat.d(TAG, " getTop() + getHeight(): " + getTop() + getHeight()
+					+ "###");
+		}
 	}
 
 	public void setTextFitSize() {
@@ -206,7 +231,6 @@ public class MarqueeView extends LinearLayout {
 	/** 根据文字长度、view长度、item长度确定动画参数 */
 	private void prepareAnimation() {
 
-		Logcat.d(TAG, "prepareAnimation called ");
 		startXOfAnimation = -(widthOfString - widthOfMarqueeView) % widthOfItem;
 		endXOfAnimation = -widthOfString + widthOfMarqueeView;
 
@@ -214,7 +238,7 @@ public class MarqueeView extends LinearLayout {
 				- endXOfAnimation) * mSpeed);
 
 		if (BuildConfig.DEBUG) {
-
+			Logcat.d(TAG, "prepareAnimation called ");
 			Logcat.d(TAG, "stringOfTextView: " + stringOfTextView + "###");
 			Logcat.d(TAG, "widthOfTextView: " + widthOfString);
 			Logcat.d(TAG, "widthOfMarqueeView: " + widthOfMarqueeView);

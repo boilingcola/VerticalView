@@ -21,12 +21,30 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:onClick="onBtn2Click"
-        android:text="布局2" />
+        android:text="样式1" />
 
     <Button
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:onClick="onBtn3Click"
+        android:text="样式2" />
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="onBtn4Click"
+        android:text="布局1" />
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="onBtn5Click"
+        android:text="布局2" />
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="onBtn6Click"
         android:text="布局3" />
 
 </LinearLayout>
